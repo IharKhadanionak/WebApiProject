@@ -1,7 +1,6 @@
 ﻿using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using WebApi.Data;
+using WebApi.IHandler;
 using WebApi.Models.Exceptions;
 using WebApi.Models.Nodes;
 
@@ -10,13 +9,13 @@ namespace WebApi.Controllers
     [ApiController]
     public class TreeController : ControllerBase
     {
-        private readonly DataContext _dbContext;
-        private IValidator<string> _validator;
+        private readonly IValidator<string> _validator;
+        private readonly ITreeHandler _treeHandler;
 
-        public TreeController(DataContext dbContext, IValidator<string> validator)
+        public TreeController(IValidator<string> validator, ITreeHandler treeHandler)
         {
-            _dbContext = dbContext;
             _validator = validator;
+            _treeHandler = treeHandler;
         }
 
         [HttpPost]
@@ -28,34 +27,7 @@ namespace WebApi.Controllers
             if (!validationResult.IsValid)
                 throw new SecureException($"The skip field is required.");
 
-            TreeNode? tree = await _dbContext.Nodes
-                .Where(x => x.SupervisorId == null && x.Name == treeName)
-                .FirstOrDefaultAsync();
-
-            if (tree == null)
-            {
-                int nextId = _dbContext.Nodes.Max(x => (int?)x.Id) + 1 ?? 1;
-                string path = $"/{nextId}";
-                tree = new TreeNode
-                {
-                    Name = treeName,
-                    SupervisorId = null,
-                    Path = path
-                };
-
-                await _dbContext.Nodes.AddAsync(tree, token);
-                await _dbContext.SaveChangesAsync(token);
-            }
-            else
-            {
-                var entireTree = _dbContext.Nodes
-                    .AsNoTracking()
-                    .Where(x => x.Path.StartsWith(tree.Path))
-                    .ToDictionary(x => x.Id);
-
-                TreeBuilder builder = new TreeBuilder();
-                tree = builder.BuildTree(entireTree);
-            }
+            var tree = await _treeHandler.GetCreateTreeAsync(treeName, token);
             return tree;
         }
     }
